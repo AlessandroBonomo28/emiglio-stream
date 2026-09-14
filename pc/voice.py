@@ -9,7 +9,6 @@ Uso:  python voice.py [--host ronaldo.local] [--port 8765]
 import argparse
 import http.server
 import os
-import threading
 import webbrowser
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -31,15 +30,19 @@ def main():
     args = ap.parse_args()
 
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", args.port), Quiet)
+    srv.daemon_threads = True
     url = f"http://localhost:{args.port}/voice.html?host={args.host}"
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
     print(f"Emiglio Voice: {url}\nCtrl+C per chiudere.")
     if not args.no_browser:
         webbrowser.open(url)
     try:
-        threading.Event().wait()
+        # serve_forever nel thread principale: su Windows Ctrl+C interrompe solo qui
+        srv.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
-        srv.shutdown()
+        pass
+    finally:
+        srv.server_close()
+        print("chiuso.")
 
 
 if __name__ == "__main__":

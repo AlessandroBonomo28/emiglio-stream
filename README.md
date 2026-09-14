@@ -68,8 +68,21 @@ se l'app non ha un menu, imposta i default in `chrome://settings/content/camera`
 `chrome://settings/content/microphone`. Chrome enumera i device all'avvio: riavvialo dopo aver
 installato i driver.
 
-Opzioni: `--host <pi>`, `--no-audio`, `--no-video`, `--audio-device <sottostringa>`, `--list-devices`.
-Il bridge riconnette da solo se lo stream cade.
+**Ritorno audio verso Emiglio.** Con `--return "<dispositivo>"` il bridge cattura in loopback tutto
+quello che il PC riproduce su quel dispositivo di output (anche virtuale) e lo manda allo speaker di
+Emiglio tramite il path `voice`. Per far parlare un'app a Emiglio, in Windows: Impostazioni →
+Sistema → Audio → Mixer volume → output dell'app = quel dispositivo. Esempio con un output
+virtuale inutilizzato:
+
+```bash
+python pc/bridge.py --return "Cuffie (Oculus"
+```
+
+`--list-devices` elenca i dispositivi catturabili. Il ritorno e la pagina voce usano lo stesso
+path `voice`, quindi uno alla volta.
+
+Opzioni: `--host <pi>`, `--return <dispositivo>`, `--no-audio`, `--no-video`,
+`--audio-device <sottostringa>`, `--list-devices`. Il bridge riconnette da solo se lo stream cade.
 
 ## PC (parlare a Emiglio con effetti voce)
 

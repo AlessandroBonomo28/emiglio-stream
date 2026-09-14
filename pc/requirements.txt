@@ -1,3 +1,4 @@
 pyvirtualcam
 sounddevice
 numpy
+pyaudiowpatch
