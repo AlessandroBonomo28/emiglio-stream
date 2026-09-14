@@ -48,11 +48,28 @@ File:
 
 ## PC (virtual cam + virtual mic)
 
-1. Installa OBS e [VB-Cable](https://vb-audio.com/Cable/).
-2. OBS → Sorgenti → **Media Source**: input `rtsp://ronaldo.local:8554/emiglio`, disattiva buffering, spunta "Restart playback when source becomes active".
-3. OBS → **Start Virtual Camera**.
-4. OBS → Impostazioni → Audio → Monitoring Device: **CABLE Input**. Nel mixer audio della Media Source imposta "Monitor and Output".
-5. Nell'app di destinazione scegli **OBS Virtual Camera** come webcam e **CABLE Output** come microfono.
+Emiglio come webcam e microfono del PC, per darlo in pasto a MiniCPM-o, Discord, Teams, ecc.
+
+Prerequisiti, una volta sola:
+
+1. **ffmpeg** nel PATH.
+2. **OBS Studio** installato: serve solo il suo driver "OBS Virtual Camera", OBS non va aperto.
+3. **[VB-Cable](https://vb-audio.com/Cable/)** installato (installer come amministratore, poi riavvia).
+4. `pip install -r pc/requirements.txt`
+
+Poi:
+
+```bash
+python pc/bridge.py
+```
+
+Nell'app scegli **OBS Virtual Camera** come webcam e **CABLE Output** come microfono. In Chrome,
+se l'app non ha un menu, imposta i default in `chrome://settings/content/camera` e
+`chrome://settings/content/microphone`. Chrome enumera i device all'avvio: riavvialo dopo aver
+installato i driver.
+
+Opzioni: `--host <pi>`, `--no-audio`, `--no-video`, `--audio-device <sottostringa>`, `--list-devices`.
+Il bridge riconnette da solo se lo stream cade.
 
 ## PC (parlare a Emiglio con effetti voce)
 
