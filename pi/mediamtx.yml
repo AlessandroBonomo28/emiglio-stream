@@ -30,6 +30,8 @@ paths:
 
   voice:
     source: publisher
+    # Un solo publisher alla volta: un secondo tentativo viene rifiutato invece di buttare fuori il primo
+    overridePublisher: no
     # Parte solo quando qualcuno sta pubblicando su "voice", muore quando smette
     runOnAvailable: /opt/emiglio/play-voice.sh
     runOnAvailableRestart: yes
