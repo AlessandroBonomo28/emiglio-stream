@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 MTX_VER="${MTX_VER:-v1.21.0}"
-ARCH=arm64v8
+ARCH=arm64
 
 apt-get install -y ffmpeg curl openssl
 
