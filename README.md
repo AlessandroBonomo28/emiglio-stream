@@ -54,7 +54,22 @@ File:
 4. OBS → Impostazioni → Audio → Monitoring Device: **CABLE Input**. Nel mixer audio della Media Source imposta "Monitor and Output".
 5. Nell'app di destinazione scegli **OBS Virtual Camera** come webcam e **CABLE Output** come microfono.
 
-Per parlare a Emiglio senza browser: `pc/publish-mic.ps1 -Mic "<nome device dshow>"`.
+## PC (parlare a Emiglio con effetti voce)
+
+```bash
+python pc/voice.py
+```
+
+Apre `http://localhost:8765/voice.html` nel browser: scegli il microfono, attiva gli effetti
+(pitch, robot, walkie-talkie, distorsione, coro, caverna) e premi **Avvia**. La pagina processa
+l'audio con Tone.js e lo pubblica via WHIP su `https://ronaldo.local:8889/voice/whip`; il Python
+serve solo la pagina, l'audio va dal browser al Pi direttamente. Gli effetti si accendono e
+spengono a caldo. Opzioni: `--host <pi>`, `--port <n>`.
+
+Al primo uso apri `https://ronaldo.local:8889` e accetta il certificato self-signed, altrimenti
+il browser rifiuta la connessione WHIP.
+
+Senza effetti e senza browser: `pc/publish-mic.ps1 -Mic "<nome device dshow>"`.
 
 ## Note
 
