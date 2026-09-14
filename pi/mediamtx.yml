@@ -23,7 +23,8 @@ webrtcAdditionalHosts: []
 
 paths:
   emiglio:
-    source: publisher
+    # GStreamer manda MPEG-TS su UDP locale (vedi publish-gst.sh)
+    source: udp://127.0.0.1:5004
     # publish.sh = ffmpeg (conversione in CPU, ~1 core); publish-gst.sh = GStreamer con ISP hardware
     runOnInit: /opt/emiglio/publish-gst.sh
     runOnInitRestart: yes
