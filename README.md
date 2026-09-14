@@ -1,26 +1,50 @@
-# emgilio-stream
+# emiglio-stream
 
-Stream bidirezionale video/audio tra il Raspberry Pi Zero 2 W di Emiglio e il PC.
+Stream bidirezionale video/audio tra il Raspberry Pi di Emiglio e il PC.
+
+## Hardware
+
+| Componente | Modello | Note |
+|---|---|---|
+| SBC | Raspberry Pi Zero 2 W (aarch64, Debian 13 trixie) | encoder H.264 hardware via V4L2 M2M |
+| Webcam | Trust Webcam USB | solo YUYV raw, 640x480 max 30 fps |
+| Audio | ReSpeaker 2-Mics Pi HAT | ALSA `plughw:CARD=seeed2micvoicec,DEV=0`, mic + speaker |
+
+## Architettura
 
 ```
-Pi:  webcam USB (YUYV 640x480) ─┐
-                                ├─ ffmpeg (h264_v4l2m2m + Opus) ─RTSP─► MediaMTX ─┬─► browser (WebRTC/WHEP)
-     ReSpeaker mic ─────────────┘                        path "emiglio"           └─► PC OBS (RTSP)
+Pi:  webcam USB (YUYV) ─► v4l2convert (ISP) ─► v4l2h264enc (VideoCore) ─┐
+     ReSpeaker mic ────► opusenc ───────────────────────────────────────┴─► MPEG-TS/UDP ─► MediaMTX
+                                                                                    path "emiglio"
+                                                                                     ├─► browser (WebRTC)
+                                                                                     └─► PC OBS (RTSP)
 
-PC:  browser (WHIP) o publish-mic.ps1 ─RTSP─► MediaMTX path "voice" ─► ffmpeg ─► ReSpeaker speaker
+PC:  browser (WHIP) o publish-mic.ps1 ─► MediaMTX path "voice" ─► ffmpeg ─► ReSpeaker speaker
 ```
+
+MediaMTX fa da hub: un path per Emiglio in uscita, uno per la voce in entrata.
+Tutto gira in un solo servizio systemd (`mediamtx.service`), che lancia e riavvia gli script.
 
 ## Pi
 
 ```bash
-git clone <repo> && cd emgilio-stream/pi && sudo ./install.sh
+git clone https://github.com/AlessandroBonomo28/emiglio-stream.git
+cd emiglio-stream/pi && sudo ./install.sh
 ```
 
 - `https://ronaldo.local:8889/emiglio` — vedi/ascolti Emiglio (accetta il certificato self-signed)
 - `https://ronaldo.local:8889/voice/publish` — parli a Emiglio dal browser
 - `rtsp://ronaldo.local:8554/emiglio` — stream per OBS / ffmpeg
 - Log: `journalctl -u mediamtx -f`
-- Tuning: variabili `FPS`, `VBITRATE` in `publish.sh` (default 20 fps, 1 Mbit/s)
+- Tuning: variabili `FPS`, `VBITRATE` in `pi/publish.sh` (default 30 fps, 1 Mbit/s)
+
+File:
+
+- `pi/mediamtx.yml` — config MediaMTX, installata in `/etc/mediamtx/`
+- `pi/publish.sh` — GStreamer: webcam + mic → H.264/Opus → MPEG-TS su UDP locale
+- `pi/play-voice.sh` — ffmpeg: path `voice` → speaker ReSpeaker
+- `pi/systemd/mediamtx.service` — servizio
+- `pi/install.sh` — installa dipendenze, MediaMTX, script, certificato, servizio
 
 ## PC (virtual cam + virtual mic)
 
@@ -34,6 +58,6 @@ Per parlare a Emiglio senza browser: `pc/publish-mic.ps1 -Mic "<nome device dsho
 
 ## Note
 
-- Solo il ReSpeaker può stare aperto da un processo alla volta su `plughw`. Se gira anche il soundboard con `aplay`,
-  uno dei due deve usare `dmix` (o il soundboard passa per `voice`).
+- WebRTC è in HTTPS con certificato self-signed generato da `install.sh`: il browser lo richiede per dare accesso al microfono.
+- Lo speaker del ReSpeaker è condiviso con `bt-speaker.service` (Bluetooth) e col soundboard: su `plughw` l'accesso è esclusivo, quindi voce e Bluetooth non suonano insieme. Soluzione: `dmix` in `~/.asoundrc`.
 - Nessuna cancellazione d'eco: se ti senti tornare indietro, abbassa il volume dello speaker o mutati mentre parla lui.

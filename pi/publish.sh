@@ -1,16 +1,30 @@
 #!/bin/sh
-# Cattura webcam USB (YUYV 640x480) + mic ReSpeaker, encode H.264 hardware + Opus,
-# e pubblica in RTSP su MediaMTX. Lanciato da MediaMTX (runOnInit), che esporta RTSP_PORT e MTX_PATH.
+# Cattura webcam USB (Trust, YUYV 640x480) + mic ReSpeaker 2-Mics e pubblica su MediaMTX.
+# La conversione YUYV -> I420 la fa l'ISP hardware (v4l2convert) e l'encode H.264 il VideoCore
+# (v4l2h264enc): ~15% di CPU sul Pi Zero 2 W a 30 fps.
+# Output: MPEG-TS su UDP locale, letto da MediaMTX (path con source: udp://127.0.0.1:5004).
+# Nota: niente h264parse di proposito. Le caps dell'encoder sono note subito, cosi' il video
+# finisce nella prima PMT; con h264parse arriverebbe dopo l'audio e MediaMTX lo ignorerebbe.
+# Lanciato da MediaMTX (runOnInit).
 
 VIDEO_DEV="${VIDEO_DEV:-/dev/video0}"
 AUDIO_DEV="${AUDIO_DEV:-plughw:CARD=seeed2micvoicec,DEV=0}"
-FPS="${FPS:-20}"
-VBITRATE="${VBITRATE:-1M}"
+FPS="${FPS:-30}"
+VBITRATE="${VBITRATE:-1000000}"   # bit/s
+UDP_PORT="${UDP_PORT:-5004}"
 
-exec ffmpeg -hide_banner -loglevel warning \
-  -f v4l2 -input_format yuyv422 -video_size 640x480 -framerate "$FPS" \
-    -thread_queue_size 512 -i "$VIDEO_DEV" \
-  -f alsa -thread_queue_size 1024 -channels 1 -sample_rate 16000 -i "$AUDIO_DEV" \
-  -pix_fmt yuv420p -c:v h264_v4l2m2m -b:v "$VBITRATE" -g "$((FPS * 2))" -bf 0 \
-  -c:a libopus -b:a 32k -application voip -ac 1 \
-  -f rtsp -rtsp_transport tcp "rtsp://localhost:${RTSP_PORT:-8554}/${MTX_PATH:-emiglio}"
+exec gst-launch-1.0 -e \
+  mpegtsmux name=mux ! queue ! udpsink host=127.0.0.1 port="$UDP_PORT" sync=false \
+  v4l2src device="$VIDEO_DEV" \
+    ! "video/x-raw,format=YUY2,width=640,height=480,framerate=${FPS}/1" \
+    ! v4l2convert \
+    ! "video/x-raw,format=I420" \
+    ! v4l2h264enc extra-controls="controls,video_bitrate=${VBITRATE},h264_i_frame_period=${FPS},repeat_sequence_header=1" \
+    ! "video/x-h264,level=(string)4,stream-format=byte-stream,alignment=au" \
+    ! queue ! mux. \
+  alsasrc device="$AUDIO_DEV" \
+    ! audioconvert ! audioresample \
+    ! "audio/x-raw,rate=48000,channels=1" \
+    ! opusenc bitrate=32000 audio-type=voice frame-size=20 \
+    ! opusparse \
+    ! queue ! mux.
