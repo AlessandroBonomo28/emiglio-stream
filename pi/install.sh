@@ -6,7 +6,7 @@ cd "$(dirname "$0")"
 MTX_VER="${MTX_VER:-v1.21.0}"
 ARCH=arm64
 
-apt-get install -y ffmpeg curl openssl
+apt-get install -y ffmpeg curl openssl gstreamer1.0-tools gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-alsa
 
 if ! command -v mediamtx >/dev/null; then
   echo "== Scarico MediaMTX $MTX_VER"
@@ -20,7 +20,7 @@ fi
 echo "== Config e script"
 install -d /etc/mediamtx /opt/emiglio
 install -m 644 mediamtx.yml /etc/mediamtx/mediamtx.yml
-install -m 755 publish.sh play-voice.sh /opt/emiglio/
+install -m 755 publish.sh publish-gst.sh play-voice.sh /opt/emiglio/
 
 if [ ! -f /etc/mediamtx/server.crt ]; then
   echo "== Certificato self-signed per WebRTC (HTTPS)"
