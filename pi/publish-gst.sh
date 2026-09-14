@@ -12,9 +12,9 @@ URL="rtsp://localhost:${RTSP_PORT:-8554}/${MTX_PATH:-emiglio}"
 
 exec gst-launch-1.0 -e \
   rtspclientsink name=sink location="$URL" protocols=tcp latency=0 \
-  v4l2src device="$VIDEO_DEV" io-mode=dmabuf \
+  v4l2src device="$VIDEO_DEV" \
     ! "video/x-raw,format=YUY2,width=640,height=480,framerate=${FPS}/1" \
-    ! v4l2convert output-io-mode=dmabuf-import \
+    ! v4l2convert \
     ! "video/x-raw,format=I420" \
     ! v4l2h264enc extra-controls="controls,video_bitrate=${VBITRATE},h264_i_frame_period=$((FPS * 2)),repeat_sequence_header=1,h264_profile=1,h264_level=11" \
     ! "video/x-h264,level=(string)4" \
