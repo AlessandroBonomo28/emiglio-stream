@@ -147,7 +147,7 @@ def find_render_device(substr):
     return best
 
 
-def return_loop(host, path, device_substr, stop):
+def return_loop(host, path, device_substr, stop, gain_db=0.0):
     """Loopback WASAPI del dispositivo di output scelto -> Opus -> RTSP publish su MediaMTX.
 
     Due accorgimenti perche' il loopback di Windows consegna campioni solo mentre qualcuno
@@ -193,9 +193,11 @@ def return_loop(host, path, device_substr, stop):
     silence = bytes(frames * 2)
     while not stop.is_set():
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
-               "-f", "s16le", "-ar", str(rate), "-ac", "1", "-i", "-",
-               "-c:a", "libopus", "-b:a", "32k", "-application", "voip",
-               "-f", "rtsp", "-rtsp_transport", "tcp", url]
+               "-f", "s16le", "-ar", str(rate), "-ac", "1", "-i", "-"]
+        if gain_db:
+            cmd += ["-af", f"volume={gain_db}dB"]
+        cmd += ["-c:a", "libopus", "-b:a", "32k", "-application", "voip",
+                "-f", "rtsp", "-rtsp_transport", "tcp", url]
         p = spawn(cmd, stdin=subprocess.PIPE)
         q.clear()
         st = pa.open(format=pyaudio.paInt16, channels=ch, rate=rate, input=True,
@@ -261,6 +263,8 @@ def main():
     ap.add_argument("--return", dest="ret", metavar="DEVICE",
                     help="sottostringa del dispositivo di OUTPUT da catturare e mandare allo speaker di Emiglio")
     ap.add_argument("--return-path", default="voice")
+    ap.add_argument("--return-gain", type=float, default=0.0, metavar="DB",
+                    help="guadagno in dB sul ritorno (es. 6 per alzare, -6 per abbassare)")
     ap.add_argument("--no-audio", action="store_true")
     ap.add_argument("--no-video", action="store_true")
     ap.add_argument("--list-devices", action="store_true")
@@ -279,7 +283,7 @@ def main():
     if not args.no_audio:
         threads.append(threading.Thread(target=audio_loop, args=(url, args.audio_device, stop), daemon=True))
     if args.ret:
-        threads.append(threading.Thread(target=return_loop, args=(args.host, args.return_path, args.ret, stop), daemon=True))
+        threads.append(threading.Thread(target=return_loop, args=(args.host, args.return_path, args.ret, stop, args.return_gain), daemon=True))
     for t in threads:
         t.start()
     try:
