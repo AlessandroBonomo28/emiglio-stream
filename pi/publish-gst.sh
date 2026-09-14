@@ -1,7 +1,7 @@
 #!/bin/sh
 # Versione GStreamer di publish.sh: la conversione YUYV -> I420 la fa l'ISP hardware (v4l2convert)
 # e l'encode H.264 il VideoCore (v4l2h264enc). CPU quasi a zero.
-# Richiede: gstreamer1.0-tools gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-alsa
+# Richiede: gstreamer1.0-tools gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-alsa gstreamer1.0-rtsp
 # Lanciato da MediaMTX (runOnInit), che esporta RTSP_PORT e MTX_PATH.
 
 VIDEO_DEV="${VIDEO_DEV:-/dev/video0}"
