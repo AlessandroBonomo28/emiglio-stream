@@ -1,0 +1,32 @@
+# MediaMTX config per Emiglio (Raspberry Pi Zero 2 W)
+# Path "emiglio": webcam USB + mic ReSpeaker  -> Pi pubblica, tutti leggono
+# Path "voice":   voce dal PC/browser         -> Pi la riproduce sullo speaker ReSpeaker
+
+logLevel: info
+
+rtsp: yes
+rtspAddress: :8554
+
+hls: no
+srt: no
+
+webrtc: yes
+webrtcAddress: :8889
+# HTTPS obbligatorio: il browser nega getUserMedia (microfono) su origini http non-localhost.
+webrtcEncryption: yes
+webrtcServerKey: /etc/mediamtx/server.key
+webrtcServerCert: /etc/mediamtx/server.crt
+# Aggiungi qui l'IP LAN del Pi se ICE non trova candidati (es. "192.168.1.50")
+webrtcAdditionalHosts: []
+
+paths:
+  emiglio:
+    source: publisher
+    runOnInit: /opt/emiglio/publish.sh
+    runOnInitRestart: yes
+
+  voice:
+    source: publisher
+    # Parte solo quando qualcuno sta pubblicando su "voice", muore quando smette
+    runOnReady: /opt/emiglio/play-voice.sh
+    runOnReadyRestart: yes

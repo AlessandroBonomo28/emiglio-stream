@@ -1,0 +1,15 @@
+[Unit]
+Description=MediaMTX (Emiglio stream hub)
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/mediamtx /etc/mediamtx/mediamtx.yml
+Restart=always
+RestartSec=3
+# Accesso a /dev/video* (webcam + encoder) e ALSA
+User=pi
+SupplementaryGroups=video audio
+
+[Install]
+WantedBy=multi-user.target
