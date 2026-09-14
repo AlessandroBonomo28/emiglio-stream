@@ -36,12 +36,24 @@ def spawn(cmd, **kw):
     return p
 
 
+def kill_tree(p):
+    """Uccide ffmpeg e i suoi figli: su Windows 'ffmpeg' puo' essere uno shim (es. Chocolatey)
+    che lancia il vero ffmpeg.exe come processo figlio, e p.kill() da solo lo lascerebbe vivo."""
+    PROCS.discard(p)
+    if p.poll() is not None:
+        return
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        p.kill()
+    except Exception:
+        pass
+
+
 def kill_all():
     for p in list(PROCS):
-        try:
-            p.kill()
-        except Exception:
-            pass
+        kill_tree(p)
 
 
 def ffmpeg_base(url):
@@ -69,7 +81,7 @@ def video_loop(url, stop):
                     cam.send(np.frombuffer(buf, dtype=np.uint8).reshape(HEIGHT, WIDTH, 3))
                     cam.sleep_until_next_frame()
             finally:
-                p.kill()
+                kill_tree(p)
             if not stop.is_set():
                 print("[video] stream interrotto, riconnetto tra 2 s")
                 time.sleep(2)
@@ -105,7 +117,7 @@ def audio_loop(url, device_substr, stop):
                         break
                     out.write(buf)
             finally:
-                p.kill()
+                kill_tree(p)
             if not stop.is_set():
                 print("[audio] stream interrotto, riconnetto tra 2 s")
                 time.sleep(2)
@@ -213,7 +225,7 @@ def return_loop(host, path, device_substr, stop):
             pass
         finally:
             st.close()
-            p.kill()
+            kill_tree(p)
         if not stop.is_set():
             print("[ritorno] publish interrotto (path occupato da un altro publisher?), riprovo tra 3 s")
             time.sleep(3)
