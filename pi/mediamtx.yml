@@ -9,6 +9,8 @@ rtspAddress: :8554
 
 hls: no
 srt: no
+rtmp: no
+moq: no
 
 webrtc: yes
 webrtcAddress: :8889
@@ -29,5 +31,5 @@ paths:
   voice:
     source: publisher
     # Parte solo quando qualcuno sta pubblicando su "voice", muore quando smette
-    runOnReady: /opt/emiglio/play-voice.sh
-    runOnReadyRestart: yes
+    runOnAvailable: /opt/emiglio/play-voice.sh
+    runOnAvailableRestart: yes
