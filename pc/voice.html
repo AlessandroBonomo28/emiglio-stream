@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emiglio Voice</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 24px 16px; background: #15171b; color: #e8e8e8; font: 15px/1.4 system-ui, sans-serif; }
+  main { max-width: 560px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  .card { background: #1f2227; border: 1px solid #2c3036; border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 6px 0; }
+  .row label.name { flex: 0 0 110px; font-weight: 600; }
+  .row input[type=range] { flex: 1; min-width: 120px; }
+  .row .val { flex: 0 0 56px; text-align: right; font-variant-numeric: tabular-nums; color: #aaa; }
+  select, input[type=text] { background: #15171b; color: #e8e8e8; border: 1px solid #3a3f47; border-radius: 6px; padding: 6px 8px; font: inherit; }
+  select { flex: 1; min-width: 0; }
+  button { background: #2f6fed; color: #fff; border: 0; border-radius: 8px; padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.secondary { background: #3a3f47; }
+  button:disabled { opacity: .5; cursor: default; }
+  .toggle { width: 20px; height: 20px; }
+  #status { color: #aaa; }
+  #status.ok { color: #6fd08c; }
+  #status.err { color: #ff7a7a; }
+  #meter { height: 8px; background: #2c3036; border-radius: 4px; overflow: hidden; margin-top: 8px; }
+  #meter > div { height: 100%; width: 0; background: #6fd08c; transition: width .05s; }
+  small { color: #888; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Emiglio Voice</h1>
+
+  <div class="card">
+    <div class="row">
+      <label class="name" for="host">Pi</label>
+      <input type="text" id="host" value="ronaldo.local" style="flex:1">
+    </div>
+    <div class="row">
+      <label class="name" for="mic">Microfono</label>
+      <select id="mic"></select>
+    </div>
+    <div class="row">
+      <button id="start">Avvia</button>
+      <button id="stop" class="secondary" disabled>Stop</button>
+      <label><input type="checkbox" id="monitor" class="toggle"> ascolta in locale</label>
+    </div>
+    <div id="meter"><div></div></div>
+    <div id="status">pronto</div>
+    <small>Se il publish fallisce, apri prima <a id="certlink" href="#" target="_blank">https://ronaldo.local:8889</a> e accetta il certificato.</small>
+  </div>
+
+  <div class="card" id="fx">
+    <div class="row">
+      <input type="checkbox" class="toggle" id="on-pitch"><label class="name" for="on-pitch">Pitch</label>
+      <input type="range" id="p-pitch" min="-12" max="12" step="1" value="-5"><span class="val" id="v-pitch">-5 st</span>
+    </div>
+    <div class="row">
+      <input type="checkbox" class="toggle" id="on-robot"><label class="name" for="on-robot">Robot</label>
+      <input type="range" id="p-robot" min="10" max="200" step="1" value="40"><span class="val" id="v-robot">40 Hz</span>
+    </div>
+    <div class="row">
+      <input type="checkbox" class="toggle" id="on-crush"><label class="name" for="on-crush">Walkie</label>
+      <input type="range" id="p-crush" min="2" max="8" step="1" value="4"><span class="val" id="v-crush">4 bit</span>
+    </div>
+    <div class="row">
+      <input type="checkbox" class="toggle" id="on-dist"><label class="name" for="on-dist">Distorsione</label>
+      <input type="range" id="p-dist" min="0" max="1" step="0.05" value="0.6"><span class="val" id="v-dist">0.60</span>
+    </div>
+    <div class="row">
+      <input type="checkbox" class="toggle" id="on-chorus"><label class="name" for="on-chorus">Coro</label>
+      <input type="range" id="p-chorus" min="0" max="1" step="0.05" value="0.7"><span class="val" id="v-chorus">0.70</span>
+    </div>
+    <div class="row">
+      <input type="checkbox" class="toggle" id="on-reverb"><label class="name" for="on-reverb">Caverna</label>
+      <input type="range" id="p-reverb" min="0.5" max="8" step="0.5" value="3"><span class="val" id="v-reverb">3.0 s</span>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const status = (msg, cls = '') => { $('status').textContent = msg; $('status').className = cls; };
+
+const params = new URLSearchParams(location.search);
+$('host').value = params.get('host') || localStorage.getItem('host') || 'ronaldo.local';
+$('host').addEventListener('input', () => { localStorage.setItem('host', $('host').value); updateCertLink(); });
+function updateCertLink() { $('certlink').href = $('certlink').textContent = `https://${$('host').value}:8889`; }
+updateCertLink();
+
+// ---- microfoni ----
+async function listMics() {
+  try { (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach(t => t.stop()); } catch (e) {}
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput');
+  $('mic').innerHTML = devs.map(d => `<option value="${d.deviceId}">${d.label || d.deviceId}</option>`).join('');
+  const saved = localStorage.getItem('mic');
+  if (saved && devs.some(d => d.deviceId === saved)) $('mic').value = saved;
+}
+$('mic').addEventListener('change', () => localStorage.setItem('mic', $('mic').value));
+listMics();
+
+// ---- catena effetti (Tone.js) ----
+let fx = null, pc = null, whipUrl = null, meterRaf = null;
+
+async function buildChain(deviceId) {
+  await Tone.start();
+  const mic = new Tone.UserMedia();
+  await mic.open(deviceId);
+
+  const pitch  = new Tone.PitchShift({ pitch: +$('p-pitch').value, windowSize: 0.1, wet: 0 });
+  // Robot = ring modulator: la voce viene moltiplicata per un oscillatore a bassa frequenza
+  const ringOsc = new Tone.Oscillator(+$('p-robot').value, 'sine').start();
+  const ringGain = new Tone.Gain(0);
+  ringOsc.connect(ringGain.gain);
+  const ringFade = new Tone.CrossFade(0);
+  const crush  = new Tone.BitCrusher({ bits: +$('p-crush').value, wet: 0 });
+  const dist   = new Tone.Distortion({ distortion: +$('p-dist').value, wet: 0 });
+  const chorus = new Tone.Chorus({ frequency: 1.5, delayTime: 3.5, depth: +$('p-chorus').value, wet: 0 }).start();
+  const reverb = new Tone.Reverb({ decay: +$('p-reverb').value, wet: 0 });
+  await reverb.ready;
+  const meter  = new Tone.Meter({ normalRange: true });
+  const monitor = new Tone.Gain($('monitor').checked ? 1 : 0).toDestination();
+  const dest = Tone.getContext().rawContext.createMediaStreamDestination();
+
+  mic.connect(pitch);
+  pitch.connect(ringFade.a);
+  pitch.connect(ringGain); ringGain.connect(ringFade.b);
+  ringFade.chain(crush, dist, chorus, reverb, meter);
+  reverb.connect(monitor);
+  reverb.connect(dest);
+
+  fx = { mic, pitch, ringOsc, ringGain, ringFade, crush, dist, chorus, reverb, meter, monitor, dest };
+  applyAll();
+
+  const bar = $('meter').firstElementChild;
+  const tick = () => { bar.style.width = Math.min(100, meter.getValue() * 300) + '%'; meterRaf = requestAnimationFrame(tick); };
+  tick();
+  return dest.stream;
+}
+
+function applyAll() {
+  if (!fx) return;
+  fx.pitch.wet.value  = $('on-pitch').checked ? 1 : 0;
+  fx.pitch.pitch      = +$('p-pitch').value;
+  fx.ringFade.fade.value = $('on-robot').checked ? 1 : 0;
+  fx.ringOsc.frequency.value = +$('p-robot').value;
+  fx.crush.wet.value  = $('on-crush').checked ? 1 : 0;
+  fx.crush.bits.value = +$('p-crush').value;
+  fx.dist.wet.value   = $('on-dist').checked ? 1 : 0;
+  fx.dist.distortion  = +$('p-dist').value;
+  fx.chorus.wet.value = $('on-chorus').checked ? 1 : 0;
+  fx.chorus.depth     = +$('p-chorus').value;
+  fx.reverb.wet.value = $('on-reverb').checked ? 1 : 0;
+  fx.reverb.decay     = +$('p-reverb').value;
+  fx.monitor.gain.value = $('monitor').checked ? 1 : 0;
+}
+
+const labels = {
+  pitch: v => `${v} st`, robot: v => `${v} Hz`, crush: v => `${v} bit`,
+  dist: v => (+v).toFixed(2), chorus: v => (+v).toFixed(2), reverb: v => (+v).toFixed(1) + ' s',
+};
+for (const k of Object.keys(labels)) {
+  const upd = () => { $('v-' + k).textContent = labels[k]($('p-' + k).value); applyAll(); };
+  $('p-' + k).addEventListener('input', upd);
+  $('on-' + k).addEventListener('change', applyAll);
+  upd();
+}
+$('monitor').addEventListener('change', applyAll);
+
+// ---- WHIP verso MediaMTX ----
+async function publish(stream) {
+  const host = $('host').value.trim();
+  whipUrl = `https://${host}:8889/voice/whip`;
+  pc = new RTCPeerConnection();
+  pc.addTransceiver(stream.getAudioTracks()[0], { direction: 'sendonly' });
+  const sender = pc.getSenders()[0];
+  const p = sender.getParameters();
+  p.encodings = [{ maxBitrate: 32000 }];
+  await sender.setParameters(p).catch(() => {});
+
+  await pc.setLocalDescription(await pc.createOffer());
+  await new Promise(res => {
+    if (pc.iceGatheringState === 'complete') return res();
+    pc.onicegatheringstatechange = () => pc.iceGatheringState === 'complete' && res();
+    setTimeout(res, 1500);
+  });
+
+  const r = await fetch(whipUrl, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription.sdp });
+  if (!r.ok) throw new Error(`WHIP ${r.status}`);
+  const loc = r.headers.get('Location');
+  if (loc) whipUrl = new URL(loc, whipUrl).href;
+  await pc.setRemoteDescription({ type: 'answer', sdp: await r.text() });
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'connected') status('in onda su ' + host, 'ok');
+    else if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) status('connessione ' + pc.connectionState, 'err');
+  };
+}
+
+async function stopAll() {
+  if (pc) { try { await fetch(whipUrl, { method: 'DELETE' }); } catch (e) {} pc.close(); pc = null; }
+  if (meterRaf) cancelAnimationFrame(meterRaf);
+  if (fx) { Object.values(fx).forEach(n => n && n.dispose && n.dispose()); fx = null; }
+  $('meter').firstElementChild.style.width = '0';
+  $('start').disabled = false; $('stop').disabled = true;
+}
+
+$('start').addEventListener('click', async () => {
+  $('start').disabled = true;
+  try {
+    status('apro il microfono...');
+    const stream = await buildChain($('mic').value);
+    status('connetto...');
+    await publish(stream);
+    $('stop').disabled = false;
+  } catch (e) {
+    status('errore: ' + e.message, 'err');
+    await stopAll();
+  }
+});
+$('stop').addEventListener('click', async () => { await stopAll(); status('fermato'); });
+window.addEventListener('beforeunload', () => { if (pc) navigator.sendBeacon && fetch(whipUrl, { method: 'DELETE', keepalive: true }); });
+</script>
+</body>
+</html>
