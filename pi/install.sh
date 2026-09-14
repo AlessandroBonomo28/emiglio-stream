@@ -6,7 +6,8 @@ cd "$(dirname "$0")"
 MTX_VER="${MTX_VER:-v1.21.0}"
 ARCH=arm64
 
-apt-get install -y ffmpeg curl openssl gstreamer1.0-tools gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-alsa
+apt-get update
+apt-get install -y --no-install-recommends ffmpeg curl openssl gstreamer1.0-tools gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-alsa
 
 if ! command -v mediamtx >/dev/null; then
   echo "== Scarico MediaMTX $MTX_VER"
