@@ -18,8 +18,7 @@ exec gst-launch-1.0 -e \
     ! v4l2convert \
     ! "video/x-raw,format=I420" \
     ! v4l2h264enc extra-controls="controls,video_bitrate=${VBITRATE},h264_i_frame_period=${FPS},repeat_sequence_header=1" \
-    ! "video/x-h264,level=(string)4" \
-    ! h264parse config-interval=1 \
+    ! "video/x-h264,level=(string)4,stream-format=byte-stream,alignment=au" \
     ! queue ! mux. \
   alsasrc device="$AUDIO_DEV" \
     ! audioconvert ! audioresample \
