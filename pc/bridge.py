@@ -205,12 +205,19 @@ def return_loop(host, path, device_substr, stop):
         # 2. writer a ritmo costante
         next_t = time.perf_counter()
         empty_ticks = 0
+        peak, last_report = 0, time.perf_counter()
         try:
             while not stop.is_set() and p.poll() is None:
                 if q:
                     empty_ticks = 0
                     while q:
-                        p.stdin.write(q.popleft())
+                        b = q.popleft()
+                        peak = max(peak, int(np.abs(np.frombuffer(b, dtype=np.int16)).max(initial=0)))
+                        p.stdin.write(b)
+                # ogni 5 s: quanto audio sta arrivando dal dispositivo (0 = solo silenzio)
+                if time.perf_counter() - last_report >= 5:
+                    print(f"[ritorno] livello ultimi 5 s: {peak} {'(silenzio)' if peak < 50 else ''}")
+                    peak, last_report = 0, time.perf_counter()
                 else:
                     empty_ticks += 1
                     if empty_ticks > 2:   # gap reale, non jitter: riempio di silenzio
