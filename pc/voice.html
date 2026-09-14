@@ -26,6 +26,7 @@
   #meter { height: 8px; background: #2c3036; border-radius: 4px; overflow: hidden; margin-top: 8px; }
   #meter > div { height: 100%; width: 0; background: #6fd08c; transition: width .05s; }
   small { color: #888; }
+  #log { background: #0f1114; border-radius: 6px; padding: 8px 10px; margin-top: 10px; max-height: 160px; overflow-y: auto; font: 12px/1.5 ui-monospace, Consolas, monospace; color: #9aa; white-space: pre-wrap; }
 </style>
 </head>
 <body>
@@ -49,6 +50,7 @@
     <div id="meter"><div></div></div>
     <div id="status">pronto</div>
     <small>Se il publish fallisce, apri prima <a id="certlink" href="#" target="_blank">https://ronaldo.local:8889</a> e accetta il certificato.</small>
+    <div id="log"></div>
   </div>
 
   <div class="card" id="fx">
@@ -83,6 +85,14 @@
 <script>
 const $ = id => document.getElementById(id);
 const status = (msg, cls = '') => { $('status').textContent = msg; $('status').className = cls; };
+function log(msg) {
+  const t = new Date().toTimeString().slice(0, 8);
+  const el = $('log');
+  el.textContent += `${t}  ${msg}
+`;
+  el.scrollTop = el.scrollHeight;
+  console.log('[voice]', msg);
+}
 
 const params = new URLSearchParams(location.search);
 $('host').value = params.get('host') || localStorage.getItem('host') || 'ronaldo.local';
@@ -102,7 +112,7 @@ $('mic').addEventListener('change', () => localStorage.setItem('mic', $('mic').v
 listMics();
 
 // ---- catena effetti (Tone.js) ----
-let fx = null, pc = null, whipUrl = null, meterRaf = null;
+let fx = null, pc = null, whipUrl = null, meterRaf = null, outStream = null, reconnectTimer = null, wantLive = false;
 
 async function buildChain(deviceId) {
   await Tone.start();
@@ -187,18 +197,40 @@ async function publish(stream) {
     setTimeout(res, 1500);
   });
 
+  log(`WHIP POST ${whipUrl}`);
   const r = await fetch(whipUrl, { method: 'POST', headers: { 'Content-Type': 'application/sdp' }, body: pc.localDescription.sdp });
   if (!r.ok) throw new Error(`WHIP ${r.status}`);
   const loc = r.headers.get('Location');
   if (loc) whipUrl = new URL(loc, whipUrl).href;
   await pc.setRemoteDescription({ type: 'answer', sdp: await r.text() });
-  pc.onconnectionstatechange = () => {
-    if (pc.connectionState === 'connected') status('in onda su ' + host, 'ok');
-    else if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) status('connessione ' + pc.connectionState, 'err');
+  const me = pc;
+  me.oniceconnectionstatechange = () => log(`ice: ${me.iceConnectionState}`);
+  me.onconnectionstatechange = () => {
+    log(`peer: ${me.connectionState}`);
+    if (me.connectionState === 'connected') status('in onda su ' + host, 'ok');
+    else if (['failed', 'disconnected', 'closed'].includes(me.connectionState)) {
+      status('connessione ' + me.connectionState, 'err');
+      if (wantLive && me === pc && me.connectionState !== 'disconnected') scheduleReconnect();
+      if (wantLive && me === pc && me.connectionState === 'disconnected') setTimeout(() => { if (me === pc && me.connectionState === 'disconnected') scheduleReconnect(); }, 4000);
+    }
   };
 }
 
+// Riconnette solo il lato WebRTC: la catena effetti e i toggle restano com'erano.
+function scheduleReconnect() {
+  if (reconnectTimer) return;
+  log('riconnessione tra 2 s (effetti invariati)');
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    if (!wantLive) return;
+    if (pc) { try { pc.close(); } catch (e) {} pc = null; }
+    try { await publish(outStream); } catch (e) { log('riconnessione fallita: ' + e.message); scheduleReconnect(); }
+  }, 2000);
+}
+
 async function stopAll() {
+  wantLive = false;
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   if (pc) { try { await fetch(whipUrl, { method: 'DELETE' }); } catch (e) {} pc.close(); pc = null; }
   if (meterRaf) cancelAnimationFrame(meterRaf);
   if (fx) { Object.values(fx).forEach(n => n && n.dispose && n.dispose()); fx = null; }
@@ -210,16 +242,23 @@ $('start').addEventListener('click', async () => {
   $('start').disabled = true;
   try {
     status('apro il microfono...');
-    const stream = await buildChain($('mic').value);
+    log('avvio, mic: ' + ($('mic').selectedOptions[0]?.textContent || $('mic').value));
+    outStream = await buildChain($('mic').value);
+    wantLive = true;
     status('connetto...');
-    await publish(stream);
+    await publish(outStream);
     $('stop').disabled = false;
   } catch (e) {
     status('errore: ' + e.message, 'err');
     await stopAll();
   }
 });
-$('stop').addEventListener('click', async () => { await stopAll(); status('fermato'); });
+$('stop').addEventListener('click', async () => { await stopAll(); status('fermato'); log('fermato'); });
+setInterval(async () => {
+  if (!pc || pc.connectionState !== 'connected') return;
+  const st = await pc.getStats();
+  st.forEach(r => { if (r.type === 'outbound-rtp' && r.kind === 'audio') log(`tx: ${r.packetsSent} pkt, ${Math.round(r.bytesSent / 1024)} KB`); });
+}, 30000);
 window.addEventListener('beforeunload', () => { if (pc) navigator.sendBeacon && fetch(whipUrl, { method: 'DELETE', keepalive: true }); });
 </script>
 </body>
