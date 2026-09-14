@@ -121,10 +121,34 @@ def find_loopback(substr):
     return None, None
 
 
+def find_render_device(substr):
+    """Indice sounddevice del dispositivo di OUTPUT (preferendo WASAPI, che ha i nomi completi)."""
+    import sounddevice as sd
+    devs = sd.query_devices()
+    apis = sd.query_hostapis()
+    best = None
+    for i, d in enumerate(devs):
+        if substr.lower() in d["name"].lower() and d["max_output_channels"] >= 1:
+            if "WASAPI" in apis[d["hostapi"]]["name"]:
+                return i
+            best = best if best is not None else i
+    return best
+
+
 def return_loop(host, path, device_substr, stop):
-    """Loopback WASAPI del dispositivo di output scelto -> Opus -> RTSP publish su MediaMTX."""
+    """Loopback WASAPI del dispositivo di output scelto -> Opus -> RTSP publish su MediaMTX.
+
+    Due accorgimenti perche' il loopback di Windows consegna campioni solo mentre qualcuno
+    riproduce sul dispositivo:
+      1. il bridge stesso riproduce silenzio in continuo su quel dispositivo (keepalive);
+      2. un thread con orologio proprio scrive a ffmpeg 20 ms ogni 20 ms, zeri se non e' arrivato
+         nulla, cosi' la sessione RTSP resta viva dall'avvio e nel silenzio.
+    """
+    import collections
     import numpy as np
     import pyaudiowpatch as pyaudio
+    import sounddevice as sd
+
     pa, dev = find_loopback(device_substr)
     if dev is None:
         print(f"[ritorno] nessun dispositivo di output contenente '{device_substr}'. Vedi --list-devices")
@@ -132,23 +156,59 @@ def return_loop(host, path, device_substr, stop):
     rate, ch = int(dev["defaultSampleRate"]), dev["maxInputChannels"]
     url = f"rtsp://{host}:8554/{path}"
     print(f"[ritorno] catturo: {dev['name']} ({rate} Hz, {ch} ch) -> {url}")
-    frames = 960
+
+    # 1. keepalive: silenzio continuo sul dispositivo
+    ridx = find_render_device(device_substr)
+    keep = None
+    if ridx is not None:
+        keep = sd.OutputStream(device=ridx, samplerate=rate, channels=2, dtype="int16",
+                               callback=lambda out, n, t, st: out.fill(0))
+        keep.start()
+        print(f"[ritorno] keepalive attivo su: {sd.query_devices(ridx)['name']}")
+    else:
+        print("[ritorno] keepalive non disponibile: il dispositivo di render non e' stato trovato")
+
+    frames = int(rate * 0.02)  # 20 ms
+    q = collections.deque()
+
+    def on_capture(in_data, n, t, status):
+        a = np.frombuffer(in_data, dtype=np.int16)
+        if ch > 1:
+            a = a.reshape(-1, ch).mean(axis=1).astype(np.int16)
+        q.append(a.tobytes())
+        return (None, pyaudio.paContinue)
+
+    silence = bytes(frames * 2)
     while not stop.is_set():
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
                "-f", "s16le", "-ar", str(rate), "-ac", "1", "-i", "-",
                "-c:a", "libopus", "-b:a", "32k", "-application", "voip",
                "-f", "rtsp", "-rtsp_transport", "tcp", url]
         p = spawn(cmd, stdin=subprocess.PIPE)
+        q.clear()
         st = pa.open(format=pyaudio.paInt16, channels=ch, rate=rate, input=True,
-                     input_device_index=dev["index"], frames_per_buffer=frames)
+                     input_device_index=dev["index"], frames_per_buffer=frames,
+                     stream_callback=on_capture)
         print("[ritorno] in onda")
+        # 2. writer a ritmo costante
+        next_t = time.perf_counter()
+        empty_ticks = 0
         try:
             while not stop.is_set() and p.poll() is None:
-                buf = st.read(frames, exception_on_overflow=False)
-                a = np.frombuffer(buf, dtype=np.int16)
-                if ch > 1:
-                    a = a.reshape(-1, ch).mean(axis=1).astype(np.int16)
-                p.stdin.write(a.tobytes())
+                if q:
+                    empty_ticks = 0
+                    while q:
+                        p.stdin.write(q.popleft())
+                else:
+                    empty_ticks += 1
+                    if empty_ticks > 2:   # gap reale, non jitter: riempio di silenzio
+                        p.stdin.write(silence)
+                next_t += 0.02
+                d = next_t - time.perf_counter()
+                if d > 0:
+                    time.sleep(d)
+                elif d < -0.5:
+                    next_t = time.perf_counter()
         except (BrokenPipeError, OSError):
             pass
         finally:
@@ -157,6 +217,8 @@ def return_loop(host, path, device_substr, stop):
         if not stop.is_set():
             print("[ritorno] publish interrotto (path occupato da un altro publisher?), riprovo tra 3 s")
             time.sleep(3)
+    if keep:
+        keep.stop(); keep.close()
     pa.terminate()
 
 
