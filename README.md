@@ -105,28 +105,45 @@ il browser rifiuta la connessione WHIP.
 
 Senza effetti e senza browser: `pc/publish-mic.ps1 -Mic "<nome device dshow>"`.
 
-## Cancellazione d'eco (AEC): provata, NON funziona
+## Anti-eco: cosa funziona e cosa no
 
 I mic del ReSpeaker stanno a pochi cm dallo speaker: tutto quello che Emiglio dice rientra nel suo
-microfono. Con un assistente vocale (MiniCPM-o) il risultato è che risponde a se stesso.
+microfono, e un assistente vocale (MiniCPM-o) finisce per rispondere a se stesso.
 
-Nel ramo `dev-AEC` c'è un tentativo completo con il modulo `echo-cancel` di PipeWire (motore WebRTC)
-sul Pi. In laboratorio cancellava 21-27 dB di eco (misura in `pi/aec-test.sh` di quel ramo), ma
-**in uso reale con MiniCPM non ha mai funzionato**: la voce arrivava disturbata o troppo bassa e il
-modello non rispondeva. Il ramo è lasciato per riferimento, `master` non lo usa. Lezioni imparate,
-se qualcuno ci riprova:
+**Soluzione che funziona: ramo `bridge-AEC`, gate half-duplex nel bridge sul PC.** Il bridge è
+l'unico punto che vede entrambe le direzioni: quando il ritorno trasmette voce verso Emiglio, azzera
+(o attenua) il mic di Emiglio verso il PC, e lo tiene chiuso per `--gate-hold` secondi dopo l'ultima
+voce, il tempo del giro di rete. Zero calcolo sul Pi, deterministico. Limite: mentre Emiglio parla
+è sordo, niente interruzioni a voce. Il Pi non cambia, è solo `pc/bridge.py`.
+
+```bash
+git checkout bridge-AEC
+python pc/bridge.py --return "Cuffie (Oculus"                 # gate mute (default con --return)
+python pc/bridge.py --return "Cuffie (Oculus" --gate duck     # attenua di 30 dB invece di azzerare
+python pc/bridge.py --return "Cuffie (Oculus" --gate off      # nessun anti-eco
+```
+
+Se Emiglio si risponde ancora da solo sulla coda delle frasi, alza `--gate-hold` (default 1.5 s);
+se dopo che ha parlato perdi l'inizio delle tue frasi, abbassalo. Il log stampa
+`[gate] mic di Emiglio CHIUSO/aperto` a ogni cambio.
+
+**Tentativo fallito e rimosso: AEC vero (PipeWire `module-echo-cancel`, motore WebRTC) sul Pi.**
+In laboratorio cancellava 21-27 dB di eco, ma in uso reale con MiniCPM non ha mai funzionato: voce
+disturbata o troppo bassa, il modello non rispondeva. Il ramo è stato cancellato; le lezioni, se
+qualcuno ci riprova:
 
 - lo speaker del ReSpeaker è sul canale **destro**: un modulo mono si aggancia solo al sinistro (silenzio);
 - l'AGC di WebRTC va tenuto **spento**: amplifica l'eco residuo (da 21 dB di cancellazione a 11);
 - il driver Seeed mette 59 dB di guadagno in ingresso: il mic satura e l'AEC non può lavorare;
 - sul Pi Zero 2 serve un quantum minimo di 1024 campioni, altrimenti xrun e audio che gracchia;
 - `pulsesrc` con un device inesistente ripiega in silenzio sul mic della webcam;
-- il playback del modulo esce solo se il lato capture sta girando (non e' un bug, e' by design);
+- il playback del modulo esce solo se il lato capture sta girando (by design);
 - WirePlumber, quando adotta la scheda, può riportare il volume dello speaker a un valore memorizzato
   (23%): se Emiglio suona pianissimo, `wpctl set-volume <id sink> 1.0`.
 
-Alternativa semplice mai implementata: gate half-duplex nel bridge sul PC (mic di Emiglio muto
-mentre il ritorno trasmette). Zero calcolo sul Pi, ma niente interruzioni a voce.
+La soluzione hardware, se un giorno serve il full-duplex vero: una scheda con AEC in silicio
+(ReSpeaker Lite / XVF3800, chip XMOS) o un vivavoce USB da conferenza, con lo speaker pilotato da
+quella scheda.
 
 ## Note
 
