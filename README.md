@@ -125,8 +125,19 @@ se qualcuno ci riprova:
 - WirePlumber, quando adotta la scheda, può riportare il volume dello speaker a un valore memorizzato
   (23%): se Emiglio suona pianissimo, `wpctl set-volume <id sink> 1.0`.
 
-Alternativa semplice mai implementata: gate half-duplex nel bridge sul PC (mic di Emiglio muto
-mentre il ritorno trasmette). Zero calcolo sul Pi, ma niente interruzioni a voce.
+**Soluzione in uso (ramo `bridge-AEC`): gate half-duplex nel bridge sul PC.** Mentre il ritorno
+trasmette voce, e per `--gate-hold` secondi dopo (il giro di rete), il bridge azzera o attenua il
+mic di Emiglio verso il PC. Zero calcolo sul Pi, deterministico. Limite: mentre Emiglio parla è sordo.
+
+```bash
+python pc/bridge.py --return "Cuffie (Oculus"                 # gate mute (default con --return)
+python pc/bridge.py --return "Cuffie (Oculus" --gate duck     # attenua di 30 dB invece di azzerare
+python pc/bridge.py --return "Cuffie (Oculus" --gate off      # nessun anti-eco
+```
+
+Se Emiglio si risponde ancora da solo alla fine delle frasi, alza `--gate-hold` (default 1.5 s).
+Se invece si perde l'inizio delle tue frasi dopo che ha parlato, abbassalo. Il log stampa
+`[gate] mic di Emiglio CHIUSO/aperto` a ogni cambio.
 
 ## Note
 
