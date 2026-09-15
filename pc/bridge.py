@@ -10,6 +10,11 @@ Ritorno (path "voice", opzionale con --return):
   (anche virtuale) e lo pubblica su MediaMTX; sul Pi play-voice.sh lo manda allo speaker di Emiglio.
   Per far parlare un'app a Emiglio: Impostazioni Windows > Sistema > Audio > Mixer volume >
   output dell'app = quel dispositivo.
+Anti-eco half-duplex (--aec, insieme a --return):
+  mentre il ritorno trasmette voce, e per --gate-hold secondi dopo (il giro di rete), il mic di
+  Emiglio verso il PC viene messo a zero (mute) o attenuato (duck). Cosi' l'app non sente la propria
+  voce rientrare dallo speaker di Emiglio. Non e' cancellazione d'eco: e' un interruttore, quindi
+  mentre Emiglio parla e' sordo.
 
 Prerequisiti (una volta sola):
   - ffmpeg nel PATH
@@ -17,7 +22,8 @@ Prerequisiti (una volta sola):
   - VB-Cable installato (https://vb-audio.com/Cable/)
   - pip install -r requirements.txt
 
-Uso:  python bridge.py [--host ronaldo.local] [--return "Cuffie (Oculus"] [--no-audio] [--no-video] [--list-devices]
+Uso:  python bridge.py [--host ronaldo.local] [--return "Cuffie (Oculus"] [--aec] [--gate mute|duck]
+                       [--gate-hold 1.5] [--no-audio] [--no-video] [--list-devices]
 """
 import argparse
 import subprocess
@@ -28,6 +34,10 @@ import time
 WIDTH, HEIGHT, FPS = 640, 480, 30
 RATE, CHANNELS = 48000, 2
 PROCS = set()   # ffmpeg figli, da uccidere all'uscita
+
+# Stato del gate anti-eco: istante (monotonic) in cui il ritorno ha trasmesso voce l'ultima volta.
+GATE = {"last_voice": 0.0, "mode": "off", "hold": 1.5, "duck": 30.0}
+VOICE_PEAK = 300   # ~ -41 dBFS: sopra e' voce, sotto e' il silenzio del keepalive
 
 
 def spawn(cmd, **kw):
@@ -95,7 +105,21 @@ def find_output_device(substr):
     return None, None
 
 
+def gate_apply(buf, np):
+    """Applica il gate al blocco del mic di Emiglio in andata. Ritorna (buf, gate_chiuso)."""
+    if GATE["mode"] == "off":
+        return buf, False
+    closed = (time.monotonic() - GATE["last_voice"]) < GATE["hold"]
+    if not closed:
+        return buf, False
+    if GATE["mode"] == "mute":
+        return bytes(len(buf)), True
+    a = np.frombuffer(buf, dtype=np.int16).astype(np.float32) * (10 ** (-GATE["duck"] / 20))
+    return a.astype(np.int16).tobytes(), True
+
+
 def audio_loop(url, device_substr, stop):
+    import numpy as np
     import sounddevice as sd
     idx, name = find_output_device(device_substr)
     if idx is None:
@@ -110,11 +134,16 @@ def audio_loop(url, device_substr, stop):
                                       "-f", "s16le", "-"]
             p = spawn(cmd, stdout=subprocess.PIPE, bufsize=chunk * 8)
             print("[audio] connesso")
+            was_closed = False
             try:
                 while not stop.is_set():
                     buf = p.stdout.read(chunk)
                     if len(buf) < chunk:
                         break
+                    buf, closed = gate_apply(buf, np)
+                    if closed != was_closed:
+                        print("[gate] mic di Emiglio " + ("CHIUSO (Emiglio sta parlando)" if closed else "aperto"))
+                        was_closed = closed
                     out.write(buf)
             finally:
                 kill_tree(p)
@@ -214,7 +243,10 @@ def return_loop(host, path, device_substr, stop, gain_db=0.0):
                     empty_ticks = 0
                     while q:
                         b = q.popleft()
-                        peak = max(peak, int(np.abs(np.frombuffer(b, dtype=np.int16)).max(initial=0)))
+                        bp = int(np.abs(np.frombuffer(b, dtype=np.int16)).max(initial=0))
+                        peak = max(peak, bp)
+                        if bp > VOICE_PEAK:
+                            GATE["last_voice"] = time.monotonic()
                         p.stdin.write(b)
                 # ogni 5 s: quanto audio sta arrivando dal dispositivo (0 = solo silenzio)
                 if time.perf_counter() - last_report >= 5:
@@ -265,6 +297,15 @@ def main():
     ap.add_argument("--return-path", default="voice")
     ap.add_argument("--return-gain", type=float, default=0.0, metavar="DB",
                     help="guadagno in dB sul ritorno (es. 6 per alzare, -6 per abbassare)")
+    ap.add_argument("--aec", action="store_true",
+                    help="attiva l'anti-eco: mentre il ritorno trasmette, il mic di Emiglio verso il PC "
+                         "viene chiuso (vedi --gate). Richiede --return")
+    ap.add_argument("--gate", choices=["mute", "duck"], default="mute",
+                    help="con --aec: mic azzerato (mute, default) o attenuato di --gate-duck-db (duck)")
+    ap.add_argument("--gate-hold", type=float, default=1.5, metavar="S",
+                    help="secondi di gate dopo l'ultima voce sul ritorno (deve coprire il giro di rete)")
+    ap.add_argument("--gate-duck-db", type=float, default=30.0, metavar="DB",
+                    help="attenuazione per --gate duck")
     ap.add_argument("--no-audio", action="store_true")
     ap.add_argument("--no-video", action="store_true")
     ap.add_argument("--list-devices", action="store_true")
@@ -276,6 +317,15 @@ def main():
 
     url = f"rtsp://{args.host}:8554/{args.path}"
     print(f"Emiglio bridge: {url}  (Ctrl+C per uscire)")
+    if args.aec and not args.ret:
+        print("--aec richiede --return (senza ritorno non c'e' eco da gestire)")
+        return 2
+    if args.aec:
+        GATE.update(mode=args.gate, hold=args.gate_hold, duck=args.gate_duck_db)
+        print(f"[aec] anti-eco attivo: {args.gate}, hold {args.gate_hold}s"
+              + (f", -{args.gate_duck_db:g} dB" if args.gate == "duck" else ""))
+    else:
+        print("[aec] anti-eco spento (aggiungi --aec)")
     stop = threading.Event()
     threads = []
     if not args.no_video:

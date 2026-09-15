@@ -81,7 +81,8 @@ python pc/bridge.py --return "Cuffie (Oculus"
 `--list-devices` elenca i dispositivi catturabili. Il ritorno e la pagina voce usano lo stesso
 path `voice`, quindi uno alla volta.
 
-Opzioni: `--host <pi>`, `--return <dispositivo>`, `--return-gain <dB>` (alza o abbassa il ritorno),
+Opzioni: `--host <pi>`, `--return <dispositivo>`, `--aec` (anti-eco, vedi sotto),
+`--return-gain <dB>` (alza o abbassa il ritorno),
 `--no-audio`, `--no-video`, `--audio-device <sottostringa>`, `--list-devices`. Il bridge riconnette
 da solo se lo stream cade e stampa ogni 5 s il livello catturato sul ritorno.
 
@@ -110,17 +111,16 @@ Senza effetti e senza browser: `pc/publish-mic.ps1 -Mic "<nome device dshow>"`.
 I mic del ReSpeaker stanno a pochi cm dallo speaker: tutto quello che Emiglio dice rientra nel suo
 microfono, e un assistente vocale (MiniCPM-o) finisce per rispondere a se stesso.
 
-**Soluzione che funziona: ramo `bridge-AEC`, gate half-duplex nel bridge sul PC.** Il bridge è
-l'unico punto che vede entrambe le direzioni: quando il ritorno trasmette voce verso Emiglio, azzera
-(o attenua) il mic di Emiglio verso il PC, e lo tiene chiuso per `--gate-hold` secondi dopo l'ultima
-voce, il tempo del giro di rete. Zero calcolo sul Pi, deterministico. Limite: mentre Emiglio parla
-è sordo, niente interruzioni a voce. Il Pi non cambia, è solo `pc/bridge.py`.
+**Soluzione che funziona: `--aec`, gate half-duplex nel bridge sul PC.** Il bridge è l'unico punto
+che vede entrambe le direzioni: quando il ritorno trasmette voce verso Emiglio, azzera (o attenua) il
+mic di Emiglio verso il PC, e lo tiene chiuso per `--gate-hold` secondi dopo l'ultima voce, il tempo
+del giro di rete. Zero calcolo sul Pi, deterministico. Limite: mentre Emiglio parla è sordo, niente
+interruzioni a voce. Il Pi non cambia, è solo `pc/bridge.py`. Spento se non lo chiedi.
 
 ```bash
-git checkout bridge-AEC
-python pc/bridge.py --return "Cuffie (Oculus"                 # gate mute (default con --return)
-python pc/bridge.py --return "Cuffie (Oculus" --gate duck     # attenua di 30 dB invece di azzerare
-python pc/bridge.py --return "Cuffie (Oculus" --gate off      # nessun anti-eco
+python pc/bridge.py --return "Cuffie (Oculus" --aec               # anti-eco, mic azzerato (mute)
+python pc/bridge.py --return "Cuffie (Oculus" --aec --gate duck   # attenua di 30 dB invece di azzerare
+python pc/bridge.py --return "Cuffie (Oculus"                     # nessun anti-eco
 ```
 
 Se Emiglio si risponde ancora da solo sulla coda delle frasi, alza `--gate-hold` (default 1.5 s);
