@@ -81,8 +81,12 @@ python pc/bridge.py --return "Cuffie (Oculus"
 `--list-devices` elenca i dispositivi catturabili. Il ritorno e la pagina voce usano lo stesso
 path `voice`, quindi uno alla volta.
 
-Opzioni: `--host <pi>`, `--return <dispositivo>`, `--no-audio`, `--no-video`,
-`--audio-device <sottostringa>`, `--list-devices`. Il bridge riconnette da solo se lo stream cade.
+Opzioni: `--host <pi>`, `--return <dispositivo>`, `--return-gain <dB>` (alza o abbassa il ritorno),
+`--no-audio`, `--no-video`, `--audio-device <sottostringa>`, `--list-devices`. Il bridge riconnette
+da solo se lo stream cade e stampa ogni 5 s il livello catturato sul ritorno.
+
+Se Windows abbassa il volume dell'app che parla a Emiglio (attenuazione "comunicazioni"), Pannello di
+controllo → Audio → Comunicazioni → "Non intervenire".
 
 ## PC (parlare a Emiglio con effetti voce)
 
@@ -101,8 +105,32 @@ il browser rifiuta la connessione WHIP.
 
 Senza effetti e senza browser: `pc/publish-mic.ps1 -Mic "<nome device dshow>"`.
 
+## Cancellazione d'eco (AEC): provata, NON funziona
+
+I mic del ReSpeaker stanno a pochi cm dallo speaker: tutto quello che Emiglio dice rientra nel suo
+microfono. Con un assistente vocale (MiniCPM-o) il risultato è che risponde a se stesso.
+
+Nel ramo `dev-AEC` c'è un tentativo completo con il modulo `echo-cancel` di PipeWire (motore WebRTC)
+sul Pi. In laboratorio cancellava 21-27 dB di eco (misura in `pi/aec-test.sh` di quel ramo), ma
+**in uso reale con MiniCPM non ha mai funzionato**: la voce arrivava disturbata o troppo bassa e il
+modello non rispondeva. Il ramo è lasciato per riferimento, `master` non lo usa. Lezioni imparate,
+se qualcuno ci riprova:
+
+- lo speaker del ReSpeaker è sul canale **destro**: un modulo mono si aggancia solo al sinistro (silenzio);
+- l'AGC di WebRTC va tenuto **spento**: amplifica l'eco residuo (da 21 dB di cancellazione a 11);
+- il driver Seeed mette 59 dB di guadagno in ingresso: il mic satura e l'AEC non può lavorare;
+- sul Pi Zero 2 serve un quantum minimo di 1024 campioni, altrimenti xrun e audio che gracchia;
+- `pulsesrc` con un device inesistente ripiega in silenzio sul mic della webcam;
+- il playback del modulo esce solo se il lato capture sta girando (non e' un bug, e' by design);
+- WirePlumber, quando adotta la scheda, può riportare il volume dello speaker a un valore memorizzato
+  (23%): se Emiglio suona pianissimo, `wpctl set-volume <id sink> 1.0`.
+
+Alternativa semplice mai implementata: gate half-duplex nel bridge sul PC (mic di Emiglio muto
+mentre il ritorno trasmette). Zero calcolo sul Pi, ma niente interruzioni a voce.
+
 ## Note
 
 - WebRTC è in HTTPS con certificato self-signed generato da `install.sh`: il browser lo richiede per dare accesso al microfono.
 - Lo speaker del ReSpeaker è condiviso con `bt-speaker.service` (Bluetooth) e col soundboard: su `plughw` l'accesso è esclusivo, quindi voce e Bluetooth non suonano insieme. Soluzione: `dmix` in `~/.asoundrc`.
-- Nessuna cancellazione d'eco: se ti senti tornare indietro, abbassa il volume dello speaker o mutati mentre parla lui.
+- PipeWire gira sul Pi ma la scheda del ReSpeaker viene usata in ALSA diretto: PipeWire la rilascia quando è inattivo. Se un player fallisce con "device busy", `sudo fuser -v /dev/snd/*` dice chi la tiene.
+- Non usare `!!` nei comandi bash sul Pi: bash lo sostituisce con l'ultimo comando.
