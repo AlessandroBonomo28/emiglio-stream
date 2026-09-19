@@ -21,8 +21,9 @@ done
 # Niente "-e": alla chiusura aspetterebbe un EOS che con la sorgente morta non arriva mai,
 # e il processo resterebbe appeso con la scheda audio aperta.
 # tcp-timeout/timeout (microsecondi): se lo stream si blocca, esce e MediaMTX lo rilancia.
+# drop-on-latency: dopo uno stallo di rete l'arretrato si scarta invece di accumulare ritardo.
 exec gst-launch-1.0 \
-  rtspsrc location="$URL" protocols=tcp latency="$JITTER_MS" tcp-timeout=5000000 timeout=5000000 \
+  rtspsrc location="$URL" protocols=tcp latency="$JITTER_MS" drop-on-latency=true tcp-timeout=5000000 timeout=5000000 \
   ! rtpopusdepay ! opusdec plc=true \
   ! audioconvert ! audioresample \
   ! "audio/x-raw,rate=48000,channels=2" \

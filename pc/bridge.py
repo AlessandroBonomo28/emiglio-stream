@@ -95,8 +95,10 @@ def video_loop(url, stop):
                     buf = p.stdout.read(frame_bytes)
                     if len(buf) < frame_bytes:
                         break
+                    # Nessuna pausa tra i frame: si consuma alla velocita' con cui arrivano. Con una
+                    # pausa fissa, dopo ogni singhiozzo di rete l'arretrato non verrebbe mai smaltito
+                    # e il ritardo crescerebbe nel tempo.
                     cam.send(np.frombuffer(buf, dtype=np.uint8).reshape(HEIGHT, WIDTH, 3))
-                    cam.sleep_until_next_frame()
             finally:
                 kill_tree(p)
             if not stop.is_set():
@@ -126,8 +128,10 @@ def gate_apply(buf, np):
 
 
 def audio_loop(url, device_substr, stop):
+    import collections
     import numpy as np
     import sounddevice as sd
+    MAX_BACKLOG = 15   # blocchi da 20 ms = 300 ms di coda al massimo
     idx, name = find_output_device(device_substr)
     if idx is None:
         print(f"[audio] device di output contenente '{device_substr}' non trovato. VB-Cable installato?")
@@ -141,17 +145,43 @@ def audio_loop(url, device_substr, stop):
                                       "-f", "s16le", "-"]
             p = spawn(cmd, stdout=subprocess.PIPE, bufsize=chunk * 8)
             print("[audio] connesso")
+            # La riproduzione va in tempo reale, quindi dopo uno stallo di rete i dati arrivano a
+            # raffica e resterebbero in coda per sempre: ritardo che cresce a ogni singhiozzo.
+            # Un thread svuota ffmpeg appena i dati arrivano; qui si tengono solo gli ultimi
+            # MAX_BACKLOG blocchi e il resto si scarta, cosi' il ritardo torna sempre al minimo.
+            dq = collections.deque()
+            alive = threading.Event()
+            alive.set()
+
+            def reader(proc=p, dq=dq, alive=alive):
+                try:
+                    while not stop.is_set():
+                        b = proc.stdout.read(chunk)
+                        if len(b) < chunk:
+                            break
+                        dq.append(b)
+                finally:
+                    alive.clear()
+
+            threading.Thread(target=reader, daemon=True).start()
             was_closed = False
+            dropped, last_rep = 0, time.monotonic()
             try:
-                while not stop.is_set():
-                    buf = p.stdout.read(chunk)
-                    if len(buf) < chunk:
-                        break
-                    buf, closed = gate_apply(buf, np)
+                while not stop.is_set() and (alive.is_set() or dq):
+                    while len(dq) > MAX_BACKLOG:
+                        dq.popleft()
+                        dropped += 1
+                    if not dq:
+                        time.sleep(0.005)
+                        continue
+                    buf, closed = gate_apply(dq.popleft(), np)
                     if closed != was_closed:
                         print("[gate] mic di Emiglio " + ("CHIUSO (Emiglio sta parlando)" if closed else "aperto"))
                         was_closed = closed
                     out.write(buf)
+                    if dropped and time.monotonic() - last_rep > 5:
+                        print(f"[audio] singhiozzo di rete: scartati {dropped * 20} ms di arretrato, ritardo recuperato")
+                        dropped, last_rep = 0, time.monotonic()
             finally:
                 kill_tree(p)
             if not stop.is_set():
@@ -249,6 +279,8 @@ def return_loop(host, path, device_substr, stop, gain_db=0.0):
             while not stop.is_set() and p.poll() is None:
                 if q:
                     empty_ticks = 0
+                    while len(q) > 15:      # arretrato dopo uno stallo: tieni solo gli ultimi 300 ms
+                        q.popleft()
                     while q:
                         b = q.popleft()
                         bp = int(np.abs(np.frombuffer(b, dtype=np.int16)).max(initial=0))
