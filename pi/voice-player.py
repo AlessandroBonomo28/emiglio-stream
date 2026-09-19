@@ -50,11 +50,14 @@ class Jitter:
         a.frombytes(chunk)
         return max(a) < QUIET and min(a) > -QUIET
 
-    def pull(self):
+    def pull(self, flush=False):
+        """flush=True quando la sorgente e' finita: niente attesa del prebuffer, si svuota e basta.
+        Senza, con la sorgente morta e meno di 'need' blocchi in coda si resterebbe a mandare silenzio
+        per sempre senza mai uscire."""
         dq = self.dq
         n = len(dq)
         if self.buffering:
-            if n < self.need:
+            if n < self.need and not flush:
                 return SILENCE
             self.buffering = False
         if n == 0:
@@ -125,7 +128,7 @@ def main():
     try:
         # aplay consuma al ritmo del clock audio: la write bloccante fa da metronomo
         while alive.is_set() or j.dq:
-            sink.stdin.write(j.pull())
+            sink.stdin.write(j.pull(flush=not alive.is_set()))
             if time.monotonic() - last > 30:
                 print("voice-player: coda %d ms | silenzi saltati %d ms | tagli %d ms | underrun %d  (ultimi 30 s)"
                       % (len(j.dq) * 20, j.skipped * 20, j.cuts * 20, j.underruns), flush=True)

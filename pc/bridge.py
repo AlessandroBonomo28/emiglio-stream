@@ -179,7 +179,10 @@ def audio_loop(url, device_substr, stop):
                 while not stop.is_set() and (alive.is_set() or dq):
                     n = len(dq)
                     if buffering:
-                        if n < need:
+                        # Si aspetta il prebuffer solo finche' il lettore e' vivo: se ffmpeg e' uscito
+                        # non arrivera' altro, e restare ad aspettare con la coda non vuota vorrebbe
+                        # dire non uscire mai dal ciclo (niente riconnessione, silenzio sul CABLE).
+                        if n < need and alive.is_set():
                             time.sleep(0.005)
                             continue
                         buffering = False
