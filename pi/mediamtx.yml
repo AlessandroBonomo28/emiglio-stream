@@ -4,6 +4,13 @@
 
 logLevel: info
 
+# Robustezza su Wi-Fi ballerino: le sessioni morte vengono chiuse in 6 s invece di 10 (cosi' chi si
+# ricollega non trova il path ancora "occupato"), e la coda di scrittura verso i lettori e' piu'
+# profonda per assorbire i cali di banda senza buttarli fuori.
+readTimeout: 6s
+writeTimeout: 6s
+writeQueueSize: 2048
+
 rtsp: yes
 rtspAddress: :8554
 

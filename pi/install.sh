@@ -31,9 +31,16 @@ if [ ! -f /etc/mediamtx/server.crt ]; then
   chown pi:pi /etc/mediamtx/server.key /etc/mediamtx/server.crt
 fi
 
+echo "== Wi-Fi: power save spento (sul Zero 2 W causa stalli periodici dello stream)"
+install -d /etc/NetworkManager/conf.d
+printf '[connection]\nwifi.powersave = 2\n' > /etc/NetworkManager/conf.d/99-wifi-powersave-off.conf
+iw dev wlan0 set power_save off 2>/dev/null || true
+iw dev wlan0 get power_save 2>/dev/null | sed 's/^/   /' || true
+
 install -m 644 systemd/mediamtx.service /etc/systemd/system/mediamtx.service
 systemctl daemon-reload
-systemctl enable --now mediamtx.service
+systemctl enable mediamtx.service
+systemctl restart mediamtx.service
 
 echo
 echo "Fatto. Controlla con:  journalctl -u mediamtx -f"

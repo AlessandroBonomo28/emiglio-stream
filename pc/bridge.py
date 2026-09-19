@@ -37,6 +37,9 @@ PROCS = set()   # ffmpeg figli, da uccidere all'uscita
 
 # Stato del gate anti-eco: istante (monotonic) in cui il ritorno ha trasmesso voce l'ultima volta.
 GATE = {"last_voice": 0.0, "mode": "off", "hold": 1.5, "duck": 30.0}
+# Watchdog del ritorno: se la scrittura verso ffmpeg resta bloccata (rete ferma, socket pieno),
+# il main loop uccide ffmpeg e il thread si riconnette invece di restare appeso per minuti.
+RETURN_WD = {"t": 0.0, "p": None}
 VOICE_PEAK = 300   # ~ -41 dBFS: sopra e' voce, sotto e' il silenzio del keepalive
 
 
@@ -66,10 +69,14 @@ def kill_all():
         kill_tree(p)
 
 
-def ffmpeg_base(url):
+def ffmpeg_base(url, media):
+    """Lettore RTSP. media = "video" | "audio": ogni connessione si abbona solo alla traccia che le
+    serve (l'audio da solo sono 32 kbit/s e regge anche con poca banda; senza, ogni connessione
+    scaricherebbe anche il video). -timeout: se la rete si blocca per 5 s ffmpeg esce e il loop si
+    riconnette, invece di restare appeso su una connessione morta."""
     return ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
-            "-rtsp_transport", "tcp", "-fflags", "nobuffer", "-flags", "low_delay",
-            "-i", url]
+            "-rtsp_transport", "tcp", "-timeout", "5000000", "-allowed_media_types", media,
+            "-fflags", "nobuffer", "-flags", "low_delay", "-i", url]
 
 
 def video_loop(url, stop):
@@ -79,7 +86,7 @@ def video_loop(url, stop):
     with pyvirtualcam.Camera(width=WIDTH, height=HEIGHT, fps=FPS, fmt=pyvirtualcam.PixelFormat.RGB) as cam:
         print(f"[video] webcam virtuale: {cam.device} ({WIDTH}x{HEIGHT}@{FPS})")
         while not stop.is_set():
-            cmd = ffmpeg_base(url) + ["-an", "-vf", f"scale={WIDTH}:{HEIGHT}", "-pix_fmt", "rgb24",
+            cmd = ffmpeg_base(url, "video") + ["-an", "-vf", f"scale={WIDTH}:{HEIGHT}", "-pix_fmt", "rgb24",
                                       "-f", "rawvideo", "-"]
             p = spawn(cmd, stdout=subprocess.PIPE, bufsize=frame_bytes * 4)
             print("[video] connesso")
@@ -130,7 +137,7 @@ def audio_loop(url, device_substr, stop):
     with sd.RawOutputStream(device=idx, samplerate=RATE, channels=CHANNELS, dtype="int16",
                             blocksize=960, latency="low") as out:
         while not stop.is_set():
-            cmd = ffmpeg_base(url) + ["-vn", "-ac", str(CHANNELS), "-ar", str(RATE),
+            cmd = ffmpeg_base(url, "audio") + ["-vn", "-ac", str(CHANNELS), "-ar", str(RATE),
                                       "-f", "s16le", "-"]
             p = spawn(cmd, stdout=subprocess.PIPE, bufsize=chunk * 8)
             print("[audio] connesso")
@@ -233,6 +240,7 @@ def return_loop(host, path, device_substr, stop, gain_db=0.0):
                      input_device_index=dev["index"], frames_per_buffer=frames,
                      stream_callback=on_capture)
         print("[ritorno] in onda")
+        RETURN_WD.update(t=time.monotonic(), p=p)
         # 2. writer a ritmo costante
         next_t = time.perf_counter()
         empty_ticks = 0
@@ -248,6 +256,7 @@ def return_loop(host, path, device_substr, stop, gain_db=0.0):
                         if bp > VOICE_PEAK:
                             GATE["last_voice"] = time.monotonic()
                         p.stdin.write(b)
+                        RETURN_WD["t"] = time.monotonic()
                 # ogni 5 s: quanto audio sta arrivando dal dispositivo (0 = solo silenzio)
                 if time.perf_counter() - last_report >= 5:
                     print(f"[ritorno] livello ultimi 5 s: {peak} {'(silenzio)' if peak < 50 else ''}")
@@ -256,6 +265,7 @@ def return_loop(host, path, device_substr, stop, gain_db=0.0):
                     empty_ticks += 1
                     if empty_ticks > 2:   # gap reale, non jitter: riempio di silenzio
                         p.stdin.write(silence)
+                        RETURN_WD["t"] = time.monotonic()
                 next_t += 0.02
                 d = next_t - time.perf_counter()
                 if d > 0:
@@ -265,11 +275,12 @@ def return_loop(host, path, device_substr, stop, gain_db=0.0):
         except (BrokenPipeError, OSError):
             pass
         finally:
+            RETURN_WD["p"] = None
             st.close()
             kill_tree(p)
         if not stop.is_set():
-            print("[ritorno] publish interrotto (path occupato da un altro publisher?), riprovo tra 3 s")
-            time.sleep(3)
+            print("[ritorno] publish interrotto (rete o path ancora occupato), riprovo tra 2 s")
+            time.sleep(2)
     if keep:
         keep.stop(); keep.close()
     pa.terminate()
@@ -339,6 +350,11 @@ def main():
     try:
         while any(t.is_alive() for t in threads):
             time.sleep(0.5)
+            wp = RETURN_WD["p"]
+            if wp is not None and time.monotonic() - RETURN_WD["t"] > 6:
+                print("[ritorno] bloccato da 6 s (rete ferma?): forzo la riconnessione")
+                RETURN_WD["p"] = None
+                kill_tree(wp)
     except KeyboardInterrupt:
         pass
     finally:

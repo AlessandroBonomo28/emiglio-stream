@@ -13,7 +13,11 @@ FPS="${FPS:-30}"
 VBITRATE="${VBITRATE:-1000000}"   # bit/s
 UDP_PORT="${UDP_PORT:-5004}"
 
-exec gst-launch-1.0 -e \
+# Publisher rimasti appesi terrebbero occupati webcam e mic: via prima di partire.
+pkill -9 -f "gst-launch-1.0.*mpegtsmux" 2>/dev/null
+
+# Niente "-e": MPEG-TS non ha bisogno di finalizzazione e un EOS mancato lascerebbe il processo appeso.
+exec gst-launch-1.0 \
   mpegtsmux name=mux ! queue ! udpsink host=127.0.0.1 port="$UDP_PORT" sync=false \
   v4l2src device="$VIDEO_DEV" \
     ! "video/x-raw,format=YUY2,width=640,height=480,framerate=${FPS}/1" \
