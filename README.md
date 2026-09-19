@@ -19,7 +19,7 @@ Pi:  webcam USB (YUYV) ─► v4l2convert (ISP) ─► v4l2h264enc (VideoCore) �
                                                                                      ├─► browser (WebRTC)
                                                                                      └─► PC OBS (RTSP)
 
-PC:  browser (WHIP) o publish-mic.ps1 ─► MediaMTX path "voice" ─► GStreamer ─► ReSpeaker speaker
+PC:  browser (WHIP) o publish-mic.ps1 ─► MediaMTX path "voice" ─► voice-player ─► ReSpeaker speaker
 ```
 
 MediaMTX fa da hub: un path per Emiglio in uscita, uno per la voce in entrata.
@@ -42,7 +42,7 @@ File:
 
 - `pi/mediamtx.yml` — config MediaMTX, installata in `/etc/mediamtx/`
 - `pi/publish.sh` — GStreamer: webcam + mic → H.264/Opus → MPEG-TS su UDP locale
-- `pi/play-voice.sh` — GStreamer: path `voice` → speaker ReSpeaker (jitter buffer 150 ms)
+- `pi/play-voice.sh` + `pi/voice-player.py` — path `voice` → speaker ReSpeaker. Coda che non scarta mai il parlato: dopo uno stallo Wi-Fi recupera il ritardo saltando le pause
 - `pi/systemd/mediamtx.service` — servizio
 - `pi/install.sh` — installa dipendenze, MediaMTX, script, certificato, servizio
 

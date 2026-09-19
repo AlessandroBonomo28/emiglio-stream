@@ -10,7 +10,7 @@
 VIDEO_DEV="${VIDEO_DEV:-/dev/video0}"
 AUDIO_DEV="${AUDIO_DEV:-plughw:CARD=seeed2micvoicec,DEV=0}"
 FPS="${FPS:-30}"
-VBITRATE="${VBITRATE:-1000000}"   # bit/s
+VBITRATE="${VBITRATE:-600000}"   # bit/s. 600k: meno carico sul Wi-Fi 2.4 GHz del Zero 2, meno stalli
 UDP_PORT="${UDP_PORT:-5004}"
 
 # Publisher rimasti appesi terrebbero occupati webcam e mic: via prima di partire.

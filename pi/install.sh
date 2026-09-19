@@ -21,7 +21,7 @@ fi
 echo "== Config e script"
 install -d /etc/mediamtx /opt/emiglio
 install -m 644 mediamtx.yml /etc/mediamtx/mediamtx.yml
-install -m 755 publish.sh play-voice.sh /opt/emiglio/
+install -m 755 publish.sh play-voice.sh voice-player.py /opt/emiglio/
 
 if [ ! -f /etc/mediamtx/server.crt ]; then
   echo "== Certificato self-signed per WebRTC (HTTPS)"

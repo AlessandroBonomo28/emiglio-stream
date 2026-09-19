@@ -131,7 +131,13 @@ def audio_loop(url, device_substr, stop):
     import collections
     import numpy as np
     import sounddevice as sd
-    MAX_BACKLOG = 15   # blocchi da 20 ms = 300 ms di coda al massimo
+    # Jitter buffer, in blocchi da 20 ms. Il Wi-Fi del Pi Zero 2 ha stalli fino a ~1.5 s (TCP che
+    # ritrasmette), dopo i quali i dati arrivano a raffica:
+    #  - senza limiti la raffica resta in coda per sempre  -> ritardo che cresce nel tempo;
+    #  - con un tetto rigido la raffica viene tagliata     -> audio a singhiozzo.
+    # Quindi: si parte dopo TARGET di prebuffer, e quando la coda supera SOFT si recupera saltando
+    # solo i blocchi di SILENZIO (le pause tra le parole), mai il parlato. Taglio netto solo oltre HARD.
+    TARGET, RESUME, SOFT, HARD = 10, 5, 15, 150   # 200 ms, 100 ms, 300 ms, 3 s
     idx, name = find_output_device(device_substr)
     if idx is None:
         print(f"[audio] device di output contenente '{device_substr}' non trovato. VB-Cable installato?")
@@ -165,23 +171,44 @@ def audio_loop(url, device_substr, stop):
 
             threading.Thread(target=reader, daemon=True).start()
             was_closed = False
-            dropped, last_rep = 0, time.monotonic()
+            peaks = collections.deque(maxlen=250)     # picchi degli ultimi 5 s, per stimare il fondo
+            buffering, need = True, TARGET
+            skipped = cuts = underruns = 0
+            last_rep = time.monotonic()
             try:
                 while not stop.is_set() and (alive.is_set() or dq):
-                    while len(dq) > MAX_BACKLOG:
-                        dq.popleft()
-                        dropped += 1
-                    if not dq:
-                        time.sleep(0.005)
+                    n = len(dq)
+                    if buffering:
+                        if n < need:
+                            time.sleep(0.005)
+                            continue
+                        buffering = False
+                    if n == 0:                        # coda vuota: si ricarica un minimo e si riparte
+                        buffering, need = True, RESUME
+                        underruns += 1
                         continue
-                    buf, closed = gate_apply(dq.popleft(), np)
+                    if n > HARD:                      # arretrato enorme: taglio netto (raro)
+                        for _ in range(n - TARGET):
+                            dq.popleft()
+                        cuts += n - TARGET
+                    buf = dq.popleft()
+                    pk = int(np.abs(np.frombuffer(buf, dtype=np.int16)).max(initial=0))
+                    peaks.append(pk)
+                    if len(dq) > SOFT and len(peaks) >= 50:
+                        floor = float(np.percentile(peaks, 20))
+                        if pk <= max(400.0, 2.5 * floor):
+                            skipped += 1              # pausa tra le parole: si salta per recuperare
+                            continue
+                    buf, closed = gate_apply(buf, np)
                     if closed != was_closed:
                         print("[gate] mic di Emiglio " + ("CHIUSO (Emiglio sta parlando)" if closed else "aperto"))
                         was_closed = closed
                     out.write(buf)
-                    if dropped and time.monotonic() - last_rep > 5:
-                        print(f"[audio] singhiozzo di rete: scartati {dropped * 20} ms di arretrato, ritardo recuperato")
-                        dropped, last_rep = 0, time.monotonic()
+                    if time.monotonic() - last_rep > 30:
+                        print(f"[audio] coda {len(dq) * 20} ms | silenzi saltati {skipped * 20} ms | "
+                              f"tagli {cuts * 20} ms | underrun {underruns}   (ultimi 30 s)")
+                        skipped = cuts = underruns = 0
+                        last_rep = time.monotonic()
             finally:
                 kill_tree(p)
             if not stop.is_set():
@@ -279,7 +306,7 @@ def return_loop(host, path, device_substr, stop, gain_db=0.0):
             while not stop.is_set() and p.poll() is None:
                 if q:
                     empty_ticks = 0
-                    while len(q) > 15:      # arretrato dopo uno stallo: tieni solo gli ultimi 300 ms
+                    while len(q) > 75:      # arretrato dopo uno stallo lungo: tieni gli ultimi 1.5 s
                         q.popleft()
                     while q:
                         b = q.popleft()
