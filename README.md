@@ -2,6 +2,8 @@
 
 Stream bidirezionale video/audio tra il Raspberry Pi di Emiglio e il PC. L'audio e video catturato dal pi va in ingresso a un modello omni-modale di nome Minicpm-o 4.5 in [questo repo](https://github.com/AlessandroBonomo28/MiniCPM-o-Demo-kvpurge) che gira sul mio pc su nvidia 5090 rtx. Il modello risponde e streamma la risposta al pi che lo riproduce sullo speaker. 
 
+> 📽️ VIDEO DEMO 2 MIN: https://www.youtube.com/watch?v=BRS-6A5bKZg
+
 ## Hardware
 
 | Componente | Modello | Note |
